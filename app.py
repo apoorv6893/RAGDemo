@@ -17,7 +17,8 @@ st.title("📚 RAG Demo (Gemini + FAISS)")
 st.sidebar.header("🔑 API Key")
 gemini_api = st.sidebar.text_input("Gemini API Key", type="password")
 
-EMBED_MODEL = "models/text-embedding-004"
+# ✅ FIXED MODEL (works with v1beta)
+EMBED_MODEL = "models/embedding-001"
 GEN_MODEL = "gemini-2.5-flash"
 
 if gemini_api:
@@ -63,16 +64,20 @@ def embed_texts(texts):
     embeddings = []
 
     for t in texts:
-        res = genai.embed_content(
-            model=EMBED_MODEL,
-            content=t
-        )
-        embeddings.append(res["embedding"])
+        try:
+            res = genai.embed_content(
+                model=EMBED_MODEL,
+                content=t
+            )
+            embeddings.append(res["embedding"])
+        except Exception as e:
+            st.error(f"Embedding failed: {e}")
+            st.stop()
 
     emb_array = np.array(embeddings).astype("float32")
 
     if len(emb_array.shape) != 2:
-        st.error("Embedding failed")
+        st.error("Embedding shape invalid")
         st.stop()
 
     return emb_array
