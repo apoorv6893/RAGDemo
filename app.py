@@ -8,21 +8,30 @@ try:
 except:
     import faiss_cpu as faiss
 
+# -------- LOCAL EMBEDDING MODEL --------
+from sentence_transformers import SentenceTransformer
+
+# -------- GEMINI --------
 import google.generativeai as genai
 
-st.set_page_config(page_title="RAG Demo (Gemini + FAISS)", layout="centered")
-st.title("📚 RAG Demo (Gemini + FAISS)")
+st.set_page_config(page_title="RAG Demo (Stable Version)", layout="centered")
+st.title("📚 RAG Demo (No Embedding Errors)")
 
 # ---------------- CONFIG ----------------
 st.sidebar.header("🔑 API Key")
 gemini_api = st.sidebar.text_input("Gemini API Key", type="password")
 
-# ✅ FIXED MODEL (works with v1beta)
-EMBED_MODEL = "models/embedding-001"
 GEN_MODEL = "gemini-2.5-flash"
 
 if gemini_api:
     genai.configure(api_key=gemini_api)
+
+# load embedding model once
+@st.cache_resource
+def load_embedder():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+embedder = load_embedder()
 
 # ---------------- FILE READING ----------------
 def read_files(files):
@@ -59,28 +68,10 @@ def chunk_text(text, size=800, overlap=120):
 
     return chunks
 
-# ---------------- EMBEDDING ----------------
+# ---------------- EMBEDDING (LOCAL) ----------------
 def embed_texts(texts):
-    embeddings = []
-
-    for t in texts:
-        try:
-            res = genai.embed_content(
-                model=EMBED_MODEL,
-                content=t
-            )
-            embeddings.append(res["embedding"])
-        except Exception as e:
-            st.error(f"Embedding failed: {e}")
-            st.stop()
-
-    emb_array = np.array(embeddings).astype("float32")
-
-    if len(emb_array.shape) != 2:
-        st.error("Embedding shape invalid")
-        st.stop()
-
-    return emb_array
+    embeddings = embedder.encode(texts)
+    return np.array(embeddings).astype("float32")
 
 # ---------------- FAISS ----------------
 def build_index(embeddings):
@@ -91,7 +82,7 @@ def build_index(embeddings):
 
 # ---------------- RETRIEVAL ----------------
 def retrieve(query, index, chunks, k=4):
-    q_emb = embed_texts([query])[0].reshape(1, -1)
+    q_emb = embed_texts([query])
     _, I = index.search(q_emb, k)
 
     results = []
@@ -139,9 +130,7 @@ files = st.file_uploader(
 )
 
 if st.button("Build Index"):
-    if not gemini_api:
-        st.error("Enter Gemini API key")
-    elif not files:
+    if not files:
         st.warning("Upload files first")
     else:
         st.info("Reading documents...")
@@ -163,7 +152,7 @@ if st.button("Build Index"):
 
         st.info(f"Created {len(all_chunks)} chunks")
 
-        st.info("Generating embeddings...")
+        st.info("Generating embeddings (local model)...")
         embeddings = embed_texts(all_chunks)
 
         st.info("Building FAISS index...")
@@ -181,12 +170,12 @@ query = st.text_input("Enter your question")
 k = st.slider("Top-K results", 2, 8, 4)
 
 if st.button("Search & Answer"):
-    if not gemini_api:
-        st.error("Enter Gemini API key")
-    elif st.session_state.index is None:
+    if st.session_state.index is None:
         st.warning("Build index first")
     elif not query:
         st.warning("Enter a query")
+    elif not gemini_api:
+        st.error("Enter Gemini API key")
     else:
         st.info("Retrieving context...")
         contexts = retrieve(query, st.session_state.index, st.session_state.chunks, k)
