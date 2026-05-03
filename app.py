@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 import io
 import numpy as np
 
@@ -18,7 +17,7 @@ st.title("📚 RAG Demo (Gemini + FAISS)")
 st.sidebar.header("🔑 API Key")
 gemini_api = st.sidebar.text_input("Gemini API Key", type="password")
 
-EMBED_MODEL = "text-embedding-004"
+EMBED_MODEL = "models/text-embedding-004"
 GEN_MODEL = "gemini-2.5-flash"
 
 if gemini_api:
@@ -38,7 +37,7 @@ def read_files(files):
                 content = "\n".join([p.extract_text() or "" for p in reader.pages])
             else:
                 content = f.read().decode("utf-8", errors="ignore")
-        except Exception:
+        except:
             content = ""
 
         if content.strip():
@@ -64,21 +63,16 @@ def embed_texts(texts):
     embeddings = []
 
     for t in texts:
-        try:
-            res = genai.embed_content(
-                model=EMBED_MODEL,
-                content=t
-            )
-            embeddings.append(res["embedding"])
-        except Exception as e:
-            st.error(f"Embedding failed: {e}")
-            st.stop()
+        res = genai.embed_content(
+            model=EMBED_MODEL,
+            content=t
+        )
+        embeddings.append(res["embedding"])
 
     emb_array = np.array(embeddings).astype("float32")
 
-    # dimension safety
     if len(emb_array.shape) != 2:
-        st.error("Embedding shape invalid")
+        st.error("Embedding failed")
         st.stop()
 
     return emb_array
@@ -120,24 +114,17 @@ Context:
 Question:
 {query}
 
-Guidelines:
-- Be concise
-- Use natural language
-- Reference context when relevant
+Be concise and natural.
 """
 
-    try:
-        return model.generate_content(prompt).text
-    except Exception as e:
-        return f"Generation error: {e}"
+    return model.generate_content(prompt).text
 
-# ---------------- SESSION STATE ----------------
+# ---------------- SESSION ----------------
 if "index" not in st.session_state:
     st.session_state.index = None
     st.session_state.chunks = []
 
 # ---------------- UI ----------------
-
 st.header("1️⃣ Upload Documents")
 
 files = st.file_uploader(
@@ -148,7 +135,7 @@ files = st.file_uploader(
 
 if st.button("Build Index"):
     if not gemini_api:
-        st.error("Add Gemini API key")
+        st.error("Enter Gemini API key")
     elif not files:
         st.warning("Upload files first")
     else:
@@ -156,7 +143,7 @@ if st.button("Build Index"):
         docs = read_files(files)
 
         if not docs:
-            st.error("No readable content found")
+            st.error("No readable content")
             st.stop()
 
         all_chunks = []
@@ -166,7 +153,7 @@ if st.button("Build Index"):
             all_chunks.extend([f"[{name}] {c}" for c in chunks])
 
         if not all_chunks:
-            st.error("No valid chunks created")
+            st.error("No chunks created")
             st.stop()
 
         st.info(f"Created {len(all_chunks)} chunks")
@@ -186,12 +173,11 @@ if st.button("Build Index"):
 st.header("2️⃣ Ask Questions")
 
 query = st.text_input("Enter your question")
-
 k = st.slider("Top-K results", 2, 8, 4)
 
 if st.button("Search & Answer"):
     if not gemini_api:
-        st.error("Add Gemini API key")
+        st.error("Enter Gemini API key")
     elif st.session_state.index is None:
         st.warning("Build index first")
     elif not query:
