@@ -18,7 +18,7 @@ st.title("📚 RAG Demo (Gemini + FAISS)")
 st.sidebar.header("🔑 API Key")
 gemini_api = st.sidebar.text_input("Gemini API Key", type="password")
 
-EMBED_MODEL = "models/embedding-001"
+EMBED_MODEL = "text-embedding-004"
 GEN_MODEL = "gemini-2.5-flash"
 
 if gemini_api:
