@@ -8,14 +8,14 @@ try:
 except:
     import faiss_cpu as faiss
 
-# -------- LOCAL EMBEDDING MODEL --------
+# -------- LOCAL EMBEDDINGS --------
 from sentence_transformers import SentenceTransformer
 
 # -------- GEMINI --------
 import google.generativeai as genai
 
-st.set_page_config(page_title="RAG Demo (Stable Version)", layout="centered")
-st.title("📚 RAG Demo (No Embedding Errors)")
+st.set_page_config(page_title="RAG Demo (Cosine Similarity)", layout="centered")
+st.title("📚 RAG Demo (Cosine Similarity + Scores)")
 
 # ---------------- CONFIG ----------------
 st.sidebar.header("🔑 API Key")
@@ -26,7 +26,7 @@ GEN_MODEL = "gemini-2.5-flash"
 if gemini_api:
     genai.configure(api_key=gemini_api)
 
-# load embedding model once
+# -------- LOAD EMBEDDING MODEL --------
 @st.cache_resource
 def load_embedder():
     return SentenceTransformer("all-MiniLM-L6-v2")
@@ -68,35 +68,43 @@ def chunk_text(text, size=800, overlap=120):
 
     return chunks
 
-# ---------------- EMBEDDING (LOCAL) ----------------
+# ---------------- EMBEDDING (COSINE READY) ----------------
 def embed_texts(texts):
     embeddings = embedder.encode(texts)
+
+    # normalize → cosine similarity
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    embeddings = embeddings / norms
+
     return np.array(embeddings).astype("float32")
 
 # ---------------- FAISS ----------------
 def build_index(embeddings):
     dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
+    index = faiss.IndexFlatIP(dim)  # cosine similarity
     index.add(embeddings)
     return index
 
 # ---------------- RETRIEVAL ----------------
 def retrieve(query, index, chunks, k=4):
     q_emb = embed_texts([query])
-    _, I = index.search(q_emb, k)
+    D, I = index.search(q_emb, k)
 
     results = []
-    for idx in I[0]:
+    for score, idx in zip(D[0], I[0]):
         if 0 <= idx < len(chunks):
-            results.append(chunks[idx])
+            results.append({
+                "text": chunks[idx],
+                "score": float(score)
+            })
 
-    return results
+    return results, q_emb
 
 # ---------------- GENERATION ----------------
 def generate_answer(query, contexts):
     model = genai.GenerativeModel(GEN_MODEL)
 
-    context_block = "\n\n---\n\n".join(contexts)
+    context_block = "\n\n---\n\n".join([c["text"] for c in contexts])
 
     prompt = f"""
 You are a helpful assistant.
@@ -152,7 +160,7 @@ if st.button("Build Index"):
 
         st.info(f"Created {len(all_chunks)} chunks")
 
-        st.info("Generating embeddings (local model)...")
+        st.info("Generating embeddings (cosine normalized)...")
         embeddings = embed_texts(all_chunks)
 
         st.info("Building FAISS index...")
@@ -178,11 +186,18 @@ if st.button("Search & Answer"):
         st.error("Enter Gemini API key")
     else:
         st.info("Retrieving context...")
-        contexts = retrieve(query, st.session_state.index, st.session_state.chunks, k)
+        contexts, q_emb = retrieve(query, st.session_state.index, st.session_state.chunks, k)
 
-        st.markdown("### 🔎 Retrieved Context")
-        for i, c in enumerate(contexts, 1):
-            st.markdown(f"**Chunk {i}:** {c[:300]}...")
+        st.markdown("### 🔎 Retrieved Context (Cosine Scores)")
+        for i, r in enumerate(contexts, 1):
+            st.markdown(f"""
+**Chunk {i} (Score: {r['score']:.4f})**  
+{r['text'][:300]}...
+""")
+
+        # vector preview (first 10 values)
+        st.markdown("### 🧠 Query Vector (first 10 values)")
+        st.write(q_emb[0][:10])
 
         st.info("Generating answer...")
         answer = generate_answer(query, contexts)
