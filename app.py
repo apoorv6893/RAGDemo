@@ -21,7 +21,7 @@ st.title("📚 RAG Demo (Files + Text + Cosine Similarity)")
 st.sidebar.header("🔑 API Key")
 gemini_api = st.sidebar.text_input("Gemini API Key", type="password")
 
-GEN_MODEL = "gemini-2.5-flash"
+GEN_MODEL = "gemini-2.5-flash-lite"
 
 if gemini_api:
     genai.configure(api_key=gemini_api)
